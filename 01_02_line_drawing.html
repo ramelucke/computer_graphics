@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Computergraphics - Exercise 01</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            background-color: aliceblue;
+        }
+
+        canvas {
+            background: #fff;
+            display: block;
+            margin: 30px auto;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Exercise 01 - Line Drawing</h2>
+    <canvas id="canvas" width="1280" height="720"></canvas>
+    <script>
+        // We need the canvas object - and yes, it is 2D :)
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        // ***
+        // *** Naive Line (just for demonstration purposes)
+        // ***
+        function drawLine(x0, y0, x1, y1, ctx) {
+            let x, m, y;
+            m = (y1 - y0) / (x1 - x0);
+            for (x = x0; x <= x1; ++x) {
+                y = m * (x - x0) + y0;
+                ctx.fillRect(x, y, 1, 1);
+            }
+        }
+
+        // ***
+        // *** Bresenham-/Midpoint Algorithm
+        // ***
+        function drawLineBresenham(x0, y0, x1, y1, ctx) {
+            let dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+            let dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+            let error = dx + dy;
+
+            while (true) {
+                ctx.fillRect(x0, y0, 1, 1);
+
+                if (x0 === x1 && y0 === y1) {
+                    break;
+                }
+
+                let e2 = 2 * error;
+
+                if (e2 >= dy) {
+                    error += dy;
+                    x0 += sx;
+                }
+
+                if (e2 <= dx) {
+                    error += dx;
+                    y0 += sy;
+                }
+            }
+        }
+
+        // ***
+        // *** Render a draggable square
+        // ***
+
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#111";
+
+            // Four corner points of the square
+            const p0 = { x: 300 + offsetX, y: 200 + offsetY };
+            const p1 = { x: 500 + offsetX, y: 200 + offsetY };
+            const p2 = { x: 500 + offsetX, y: 400 + offsetY };
+            const p3 = { x: 300 + offsetX, y: 400 + offsetY };
+
+            // Draw the four edges
+            drawLineBresenham(p0.x, p0.y, p1.x, p1.y, ctx);
+            drawLineBresenham(p1.x, p1.y, p2.x, p2.y, ctx);
+            drawLineBresenham(p2.x, p2.y, p3.x, p3.y, ctx);
+            drawLineBresenham(p3.x, p3.y, p0.x, p0.y, ctx);
+        }
+
+        // Position offset of the square
+        let offsetX = 0;
+        let offsetY = 0;
+
+        // Mouse dragging state
+        let isDragging = false;
+        let lastX = 0;
+        let lastY = 0;
+
+        // Mouse button pressed
+        canvas.addEventListener("mousedown", function (e) {
+            isDragging = true;
+            lastX = e.clientX;
+            lastY = e.clientY;
+        });
+
+        // Mouse moved
+        canvas.addEventListener("mousemove", function (e) {
+            if (!isDragging) return;
+
+            const dx = e.clientX - lastX;
+            const dy = e.clientY - lastY;
+
+            offsetX += dx;
+            offsetY += dy;
+
+            lastX = e.clientX;
+            lastY = e.clientY;
+
+            render();
+        });
+
+        // Mouse button released
+        canvas.addEventListener("mouseup", function () {
+            isDragging = false;
+        });
+
+        // Stop dragging if the mouse leaves the canvas
+        canvas.addEventListener("mouseleave", function () {
+            isDragging = false;
+        });
+
+        render();
+    </script>
+</body>
+
+</html>

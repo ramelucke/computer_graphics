@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Computergraphics - Exercise 00</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            background-color: aliceblue;
+        }
+
+        canvas {
+            background: #fff;
+            display: block;
+            margin: 30px auto;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Exercise 00 - Line Drawing</h2>
+    <canvas id="canvas" width="1280" height="720"></canvas>
+    <script>
+        // We need the canvas object - and yes, it is 2D :)
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        // ***
+        // *** Naive Line (just for demonstration purposes)
+        // ***
+        function drawLine(x0, y0, x1, y1, ctx) {
+            let x, m, y;
+            m = (y1 - y0) / (x1 - x0)
+            for (x = x0; x <= x1; ++x) {
+                y = m * (x - x0) + y0
+                ctx.fillRect(x, y, 1, 1);
+            }
+        }
+
+        function drawLineBresenham(x0,y0,x1,y1,ctx) {
+            let dx = Math.abs(x1-x0);
+            let sx = x0 < x1 ? 1 : -1;
+            let dy = -Math.abs(y1-y0);
+            let sy = y0 < y1 ? 1 : -1;
+            let error = dx+dy
+
+            while(true) {
+                ctx.fillRect(x0,y0,1,1);
+                if (x0=== x1&& y0 === y1) {
+                    break;
+                }
+                let e2= 2*error;
+                if (e2 >= dy) {
+                    error += dy;
+                    x0 +=sx;
+                }
+                if (e2<= dx) {
+                    error += dx;
+                    y0 += sy;
+                }
+            }
+        }
+
+        function render(x0,y0,length, ctx) {
+            let x1 = x0+length, y1 = y0;
+            let x2 = x0+length, y2 = y0+length;
+            let x3 = x0, y3 = y0+length;
+            drawLineBresenham(x0, y0, x1, y1, ctx);
+            drawLineBresenham(x1, y1, x2, y2, ctx);
+            drawLineBresenham(x2, y2, x3, y3, ctx);
+            drawLineBresenham(x3, y3, x0, y0, ctx);
+            
+        }
+
+        // Set a drawing color and draw a test line
+        ctx.fillStyle = "#111";
+        render(100,200,200,ctx);    
+    </script>
+</body>
+
+</html>
