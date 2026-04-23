@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+
+<html>
+    <head>
+        <meta charset="UTF-8" />
+        <title>Computergraphics - Exercise 03</title>
+        <style>
+            body {
+                font-family: sans-serif;
+                text-align: center;
+                background-color: aliceblue;
+            }
+
+
+        canvas {
+            background: #fff;
+            display: block;
+            margin: 30px auto;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Exercise 03 - Scanline Rasterizer</h2>
+    <canvas id="canvas" width="1280" height="720"></canvas>
+
+    <script>
+        // We need the canvas object - and yes, it is 2D :)
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        // ***
+        // *** Naive Line (just for demonstration purposes)
+        // ***
+        function drawLine(x0, y0, x1, y1, ctx) {
+            let x, m, y;
+            m = (y1 - y0) / (x1 - x0);
+            for (x = x0; x <= x1; ++x) {
+                y = m * (x - x0) + y0;
+                ctx.fillRect(x, y, 1, 1);
+            }
+        }
+
+        // ***
+        // *** Bresenham-/Midpoint Algorithm
+        // ***
+        function drawLineBresenham(x0, y0, x1, y1, ctx) {
+            let dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+            let dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+            let error = dx + dy;
+
+            while (true) {
+                ctx.fillRect(x0, y0, 1, 1);
+
+                if (x0 === x1 && y0 === y1) {
+                    break;
+                }
+
+                let e2 = 2 * error;
+
+                if (e2 >= dy) {
+                    error += dy;
+                    x0 += sx;
+                }
+
+                if (e2 <= dx) {
+                    error += dx;
+                    y0 += sy;
+                }
+            }
+        }
+
+        // ***
+        // *** Scanline rasterizer for convex polygons
+        // ***
+        function fillPolygonScanline(polygon, ctx) {
+            let minY = Math.min(...polygon.map(p => p[1]));
+            let maxY = Math.max(...polygon.map(p => p[1]));
+
+            minY = Math.ceil(minY);
+            maxY = Math.floor(maxY);
+
+            for (let y = minY; y <= maxY; y++) {
+                let intersections = [];
+
+                for (let i = 0; i < polygon.length; i++) {
+                    let a = polygon[i];
+                    let b = polygon[(i + 1) % polygon.length];
+
+                    if ((a[1] <= y && b[1] > y) || (b[1] <= y && a[1] > y)) {
+                        let x = a[0] + (y - a[1]) * (b[0] - a[0]) / (b[1] - a[1]);
+                        intersections.push(x);
+                    }
+                }
+
+                intersections.sort((a, b) => a - b);
+
+                for (let k = 0; k < intersections.length; k += 2) {
+                    let xStart = Math.ceil(intersections[k]);
+                    let xEnd = Math.floor(intersections[k + 1]);
+
+                    if (xEnd >= xStart) {
+                        // drawLineBresenham(xStart, y, xEnd , y, ctx);
+                        ctx.fillRect(xStart, y, xEnd - xStart + 1, 1); 
+                        // <-- this is how we would draw the line on a JavaScript canvas 
+                        // (but we assume we have no JS and use Bresenham)
+                    }
+                }
+            }
+        }
+
+        // ***
+        // *** Vector class for 3D points with basic vector functions
+        // *** (JavaScript does not support operator overloading)
+        // ***
+        class Vec3 {
+            // Constructor: Creates a new 3D vector with components x, y, z
+            constructor(x, y, z) {
+                this.x = x;
+                this.y = y;
+                this.z = z;
+            }
+
+            // Converts the vector to an array with homogeneous coordinates
+            // in the form [x, y, z, w]
+            toArray(w = 1) {
+                return [this.x, this.y, this.z, w];
+            }
+
+            // Creates a Vec3 from an array [x, y, z, w]
+            static fromArray(arr) {
+                let w = arr[3] !== 0 ? arr[3] : 1;
+                return new Vec3(arr[0] / w, arr[1] / w, arr[2] / w);
+            }
+
+            // Adds another vector to this one (this + v)
+            add(v) {
+                return new Vec3(this.x + v.x, this.y + v.y, this.z + v.z);
+            }
+
+            // Subtracts another vector from this one (this - v)
+            subtract(v) {
+                return new Vec3(this.x - v.x, this.y - v.y, this.z - v.z);
+            }
+
+            // Multiplies the vector by a scalar (this * s)
+            multiply(s) {
+                return new Vec3(this.x * s, this.y * s, this.z * s);
+            }
+
+            // The cross product yields a vector orthogonal to both input vectors
+            cross(v) {
+                return new Vec3(
+                    this.y * v.z - this.z * v.y,
+                    this.z * v.x - this.x * v.z,
+                    this.x * v.y - this.y * v.x
+                );
+            }
+
+            // The dot product yields a value that represents
+            // the angle and length of both vectors
+            dot(v) {
+                return this.x * v.x + this.y * v.y + this.z * v.z;
+            }
+
+            // Returns the length (magnitude) of the vector
+            length() {
+                return Math.hypot(this.x, this.y, this.z);
+            }
+
+            // Returns the normalized vector (same direction, but length 1)
+            normalize() {
+                const len = this.length();
+                if (len === 0) {
+                    return new Vec3(0, 0, 0);
+                }
+                return this.multiply(1 / len);
+            }
+        }
+
+        // ***
+        // *** 4x4 matrix class for transformations (column-major)
+        // ***
+        class Mat4 {
+            // Constructor: Creates a matrix from an array (16 values)
+            // or as an identity matrix
+            constructor(values) {
+                this.m = values || Mat4.identity();
+            }
+
+            // Returns the identity matrix (no transformation)
+            static identity() {
+                return [
+                    1, 0, 0, 0, // column 0 (x)
+                    0, 1, 0, 0, // column 1 (y)
+                    0, 0, 1, 0, // column 2 (z)
+                    0, 0, 0, 1  // column 3 (w)
+                ];
+            }
+
+            // Returns a translation matrix for the vector (x, y, z)
+            static translation(tx, ty, tz) {
+                return new Mat4([
+                    1, 0, 0, 0,
+                    0, 1, 0, 0,
+                    0, 0, 1, 0,
+                    tx, ty, tz, 1
+                ]);
+            }
+
+            // Returns a scaling matrix for the vector (x, y, z)
+            static scaling(sx, sy, sz) {
+                return new Mat4([
+                    sx, 0, 0, 0,
+                    0, sy, 0, 0,
+                    0, 0, sz, 0,
+                    0, 0, 0, 1
+                ]);
+            }
+
+            // Rotation matrix around the Y axis
+            static rotationY(angleRad) {
+                const c = Math.cos(angleRad), s = Math.sin(angleRad);
+                return new Mat4([
+                    c, 0, -s, 0,
+                    0, 1, 0, 0,
+                    s, 0, c, 0,
+                    0, 0, 0, 1
+                ]);
+            }
+
+            // Rotation matrix around the X axis
+            static rotationX(angleRad) {
+                const c = Math.cos(angleRad), s = Math.sin(angleRad);
+                return new Mat4([
+                    1, 0, 0, 0,
+                    0, c, s, 0,
+                    0, -s, c, 0,
+                    0, 0, 0, 1
+                ]);
+            }
+
+            // Rotation matrix around the Z axis
+            static rotationZ(angleRad) {
+                const c = Math.cos(angleRad), s = Math.sin(angleRad);
+                return new Mat4([
+                    c, s, 0, 0,
+                    -s, c, 0, 0,
+                    0, 0, 1, 0,
+                    0, 0, 0, 1
+                ]);
+            }
+
+            // Multiplies this matrix with a vector
+            multiplyVec4(vec) {
+                const m = this.m, [x, y, z, w] = vec;
+                return [
+                    m[0] * x + m[4] * y + m[8] * z + m[12] * w,
+                    m[1] * x + m[5] * y + m[9] * z + m[13] * w,
+                    m[2] * x + m[6] * y + m[10] * z + m[14] * w,
+                    m[3] * x + m[7] * y + m[11] * z + m[15] * w
+                ];
+            }
+
+            // Multiplies this matrix with another 4x4 matrix
+            multiplyMat4(other) {
+                let a = this.m, b = other.m, res = new Array(16).fill(0);
+
+                for (let col = 0; col < 4; ++col) {
+                    for (let row = 0; row < 4; ++row) {
+                        let sum = 0;
+                        for (let k = 0; k < 4; ++k) {
+                            sum += a[row + k * 4] * b[k + col * 4];
+                        }
+                        res[row + col * 4] = sum;
+                    }
+                }
+
+                return new Mat4(res);
+            }
+
+            // Creates a perspective projection matrix for 3D rendering
+            static perspectiveProjection(fovyDeg, aspect, near, far) {
+                const fovy = (fovyDeg / 180) * Math.PI;
+                const f = 1 / Math.tan(fovy / 2);
+                const nf = 1 / (near - far);
+
+                return new Mat4([
+                    f / aspect, 0, 0, 0,
+                    0, f, 0, 0,
+                    0, 0, (far + near) * nf, -1,
+                    0, 0, (2 * far * near) * nf, 0
+                ]);
+            }
+
+            // Creates a LookAt-View matrix:
+            // positions and orients the camera in space
+            static lookAt(eye, target, up) {
+                const z = eye.subtract(target).normalize();
+                const x = up.cross(z).normalize();
+                const y = z.cross(x);
+
+                return new Mat4([
+                    x.x, y.x, z.x, 0,
+                    x.y, y.y, z.y, 0,
+                    x.z, y.z, z.z, 0,
+                    -x.dot(eye), -y.dot(eye), -z.dot(eye), 1
+                ]);
+            }
+        }
+
+        // ***
+        // *** Creates a quaternion (w, x, y, z) or initializes to zero
+        // ***
+        class Quaternion {
+            constructor(w, x, y, z) {
+                if (w !== undefined) {
+                    this.w = w;
+                    this.x = x;
+                    this.y = y;
+                    this.z = z;
+                } else {
+                    this.w = 0;
+                    this.x = 0;
+                    this.y = 0;
+                    this.z = 0;
+                }
+            }
+
+            // Normalizes this quaternion
+            norm() {
+                const n = Math.sqrt(
+                    this.x * this.x +
+                    this.y * this.y +
+                    this.z * this.z +
+                    this.w * this.w
+                );
+                this.x /= n;
+                this.y /= n;
+                this.z /= n;
+                this.w /= n;
+                return this;
+            }
+
+            static fromEuler(yaw, pitch, roll) {
+                const cy = Math.cos(yaw * 0.5 * (Math.PI / 180));
+                const sy = Math.sin(yaw * 0.5 * (Math.PI / 180));
+                const cp = Math.cos(pitch * 0.5 * (Math.PI / 180));
+                const sp = Math.sin(pitch * 0.5 * (Math.PI / 180));
+                const cr = Math.cos(roll * 0.5 * (Math.PI / 180));
+                const sr = Math.sin(roll * 0.5 * (Math.PI / 180));
+
+                return new Quaternion(
+                    cr * cp * cy + sr * sp * sy,
+                    sr * cp * cy - cr * sp * sy,
+                    cr * sp * cy + sr * cp * sy,
+                    cr * cp * sy - sr * sp * cy
+                );
+            }
+
+            // Returns the Euler angles of this quaternion as a string (in degrees)
+            toEuler() {
+                let roll, pitch, yaw;
+
+                const sinr_cosp = 2 * (this.w * this.x + this.y * this.z);
+                const cosr_cosp = 1 - 2 * (this.x * this.x + this.y * this.y);
+                roll = Math.atan2(sinr_cosp, cosr_cosp);
+
+                const sinp = 2 * (this.w * this.y - this.z * this.x);
+                if (Math.abs(sinp) >= 1) {
+                    pitch = Math.sign(sinp) * (Math.PI / 2);
+                } else {
+                    pitch = Math.asin(sinp);
+                }
+
+                const siny_cosp = 2 * (this.w * this.z + this.x * this.y);
+                const cosy_cosp = 1 - 2 * (this.y * this.y + this.z * this.z);
+                yaw = Math.atan2(siny_cosp, cosy_cosp);
+
+                return "yaw: " + (roll / (Math.PI / 180)) +
+                    " pitch: " + (pitch / (Math.PI / 180)) +
+                    " roll: " + (yaw / (Math.PI / 180));
+            }
+
+            // Converts this quaternion to a rotation matrix
+            toRotationMatrix() {
+                let r = new Array(16);
+
+                r[0] = 1 - 2 * (this.y * this.y + this.z * this.z);
+                r[4] = 2 * (this.x * this.y + this.z * this.w);
+                r[8] = 2 * (this.x * this.z - this.y * this.w);
+                r[12] = 0;
+
+                r[1] = 2 * (this.x * this.y - this.z * this.w);
+                r[5] = 1 - 2 * (this.x * this.x + this.z * this.z);
+                r[9] = 2 * (this.y * this.z + this.x * this.w);
+                r[13] = 0;
+
+                r[2] = 2 * (this.x * this.z + this.y * this.w);
+                r[6] = 2 * (this.y * this.z - this.x * this.w);
+                r[10] = 1 - 2 * (this.x * this.x + this.y * this.y);
+                r[14] = 0;
+
+                r[3] = 0;
+                r[7] = 0;
+                r[11] = 0;
+                r[15] = 1;
+
+                return new Mat4(r);
+            }
+
+            // Multiplies this quaternion with another quaternion
+            multiplyQuat(rhs) {
+                let q = new Quaternion();
+
+                q.w = -this.x * rhs.x - this.y * rhs.y - this.z * rhs.z + this.w * rhs.w;
+                q.x = this.x * rhs.w + this.y * rhs.z - this.z * rhs.y + this.w * rhs.x;
+                q.y = -this.x * rhs.z + this.y * rhs.w + this.z * rhs.x + this.w * rhs.y;
+                q.z = this.x * rhs.y - this.y * rhs.x + this.z * rhs.w + this.w * rhs.z;
+
+                return q;
+            }
+
+            // The dot product of this quaternion with another quaternion
+            dotQuat(rhs) {
+                return this.w * rhs.w + this.x * rhs.x + this.y * rhs.y + this.z * rhs.z;
+            }
+
+            // Normalized Linear Interpolation
+            static lerp(q1, q2, t) {
+                if (q1.dotQuat(q2) < 0) {
+                    q2 = new Quaternion(-q2.w, -q2.x, -q2.y, -q2.z);
+                }
+
+                return new Quaternion(
+                    (1 - t) * q1.w + t * q2.w,
+                    (1 - t) * q1.x + t * q2.x,
+                    (1 - t) * q1.y + t * q2.y,
+                    (1 - t) * q1.z + t * q2.z
+                ).norm();
+            }
+
+            // Spherical Linear Interpolation
+            static slerp(q1, q2, t) {
+                let dot = q1.dotQuat(q2);
+
+                if (dot < 0) {
+                    q2 = new Quaternion(-q2.w, -q2.x, -q2.y, -q2.z);
+                    dot = -dot;
+                }
+
+                // If both quaternions are very close, use NLERP instead
+                // to avoid numerical problems with sin(theta) ≈ 0
+                if (dot > 0.9995) {
+                    return Quaternion.lerp(q1, q2, t);
+                }
+
+                const theta = Math.acos(dot);
+                const s = Math.sin(theta);
+
+                const w1 = Math.sin((1 - t) * theta) / s;
+                const w2 = Math.sin(t * theta) / s;
+
+                return new Quaternion(
+                    w1 * q1.w + w2 * q2.w,
+                    w1 * q1.x + w2 * q2.x,
+                    w1 * q1.y + w2 * q2.y,
+                    w1 * q1.z + w2 * q2.z
+                );
+            }
+        }
+
+        // ***
+        // *** Let's make a scene
+        // ***
+        const scene = [];
+
+        // Creates a cube object with arbitrary center, edge length,
+        // color, and model matrix
+        function createCubeObject(
+            size = 100,
+            center = new Vec3(0, 0, 0),
+            color = "#111",
+            modelMatrix = new Mat4(Mat4.identity())
+        ) {
+            const h = size / 2;
+
+            const vertices = [
+                center.add(new Vec3(-h, -h, -h)),
+                center.add(new Vec3(h, -h, -h)),
+                center.add(new Vec3(h, h, -h)),
+                center.add(new Vec3(-h, h, -h)),
+                center.add(new Vec3(-h, -h, h)),
+                center.add(new Vec3(h, -h, h)),
+                center.add(new Vec3(h, h, h)),
+                center.add(new Vec3(-h, h, h))
+            ];
+
+            const edges = [
+                [0, 1], [1, 2], [2, 3], [3, 0],
+                [4, 5], [5, 6], [6, 7], [7, 4],
+                [0, 4], [1, 5], [2, 6], [3, 7]
+            ];
+
+            const faces = [
+                [0, 1, 2, 3],
+                [4, 5, 6, 7],
+                [0, 1, 5, 4],
+                [2, 3, 7, 6],
+                [1, 2, 6, 5],
+                [0, 3, 7, 4]
+            ];
+
+            return {
+                vertices: vertices,
+                edges: edges,
+                faces: faces,
+                color: color,
+                modelMatrix: modelMatrix
+            };
+        }
+
+        // Large black cube (at the origin)
+        scene.push(
+            createCubeObject(100, new Vec3(0, 0, 0), "#111", Mat4.rotationY(0))
+        );
+
+        // Small red cube (Euler interpolation)
+        scene.push(
+            createCubeObject(
+                40,
+                new Vec3(0, 0, 0),
+                "#c00",
+                Mat4.translation(90, 60, 0)
+            )
+        );
+
+        // Small green cube (Quaternion interpolation)
+        scene.push(
+            createCubeObject(
+                40,
+                new Vec3(0, 0, 0),
+                "#1E1",
+                Mat4.translation(150, 60, 0)
+            )
+        );
+        
+ 
+        // ***
+        // *** Camera parameters (orbit model, with initial angle)
+        // ***
+        let cameraTarget = new Vec3(0, 0, 0);
+        let cameraRadius = 400;
+        let cameraAzimuth = 0;
+        let cameraElevation = 0;
+        let cameraUp = new Vec3(0, 1, 0);
+        let cameraPosition = new Vec3(0, 0, 400);
+
+        // ***
+        // *** Start and end orientations
+        // ***
+        const startEuler = { yaw: 0, pitch: 0, roll: 0 };
+        const endEuler = { yaw: 180, pitch: 90, roll: 180 };
+
+        const qStart = Quaternion.fromEuler(
+            startEuler.yaw,
+            startEuler.pitch,
+            startEuler.roll
+        ).norm();
+
+        const qEnd = Quaternion.fromEuler(
+            endEuler.yaw,
+            endEuler.pitch,
+            endEuler.roll
+        ).norm();
+        
+        // ***
+        // *** Render using scanline filling + Painter's Algorithm
+        // ***
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const projectionMat = Mat4.perspectiveProjection(
+                45,
+                canvas.width / canvas.height,
+                1,
+                1000
+            );
+
+            const viewMat = Mat4.lookAt(cameraPosition, cameraTarget, cameraUp);
+
+            const facesToDraw = [];
+            const transformedObjects = [];
+
+            // 1. Transform all objects and collect faces
+            for (const obj of scene) {
+                const mvpMat = projectionMat
+                    .multiplyMat4(viewMat)
+                    .multiplyMat4(obj.modelMatrix);
+
+                const transformed2D = [];
+                const transformedDepth = [];
+
+                for (const v of obj.vertices) {
+                    let vec4 = v.toArray();
+                    let result = mvpMat.multiplyVec4(vec4);
+
+                    // Save depth for painter's algorithm
+                    transformedDepth.push(result[2]);
+
+                    // Perspective division
+                    let w = result[3] !== 0 ? result[3] : 1;
+                    let ndc = [result[0] / w, result[1] / w];
+
+                    let x2d = ((ndc[0] + 1) / 2) * canvas.width;
+                    let y2d = ((1 - ndc[1]) / 2) * canvas.height;
+
+                    transformed2D.push([Math.round(x2d), Math.round(y2d)]);
+                }
+
+                transformedObjects.push({
+                    object: obj,
+                    transformed2D: transformed2D
+                });
+
+                for (const face of obj.faces) {
+                    const polygon = face.map(index => transformed2D[index]);
+                    const avgDepth = face.reduce((sum, index) => sum + transformedDepth[index], 0) / face.length;
+
+                    facesToDraw.push({
+                        polygon: polygon,
+                        color: obj.color,
+                        depth: avgDepth
+                    });
+                }
+            }
+
+            // 2. Sort faces back-to-front
+            facesToDraw.sort((a, b) => b.depth - a.depth);
+
+            // 3. Draw filled faces first
+            ctx.save();
+            ctx.globalAlpha = 1;
+
+            for (const face of facesToDraw) {
+                ctx.fillStyle = face.color;
+                fillPolygonScanline(face.polygon, ctx);
+            }
+
+            ctx.restore();
+
+            // 4. Draw wireframe edges on top
+            for (const entry of transformedObjects) {
+                const obj = entry.object;
+                const transformed2D = entry.transformed2D;
+
+                ctx.fillStyle = obj.color;
+
+                for (const [start, end] of obj.edges) {
+                    const [x0, y0] = transformed2D[start];
+                    const [x1, y1] = transformed2D[end];
+                    //drawLineBresenham(x0, y0, x1, y1, ctx);
+                }
+            }
+        }
+
+        // ***
+        // *** A simple render function using scanline filling + Bresenham edges
+        // ***
+        /*
+        function render() {
+            // 1. Clear the drawing area (canvas) so that each frame
+            // is completely redrawn
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 3. Create the projection and view matrices:
+            // The projection matrix is defined by the field of view,
+            // aspect ratio, near and far plane
+            const projectionMat = Mat4.perspectiveProjection(
+                45,
+                canvas.width / canvas.height,
+                1,
+                1000
+            );
+
+            // The view matrix is in this case the look-at matrix of the camera
+            const viewMat = Mat4.lookAt(cameraPosition, cameraTarget, cameraUp);
+            
+            
+
+            // 4. For each object in the scene (e.g., each cube):
+            for (const obj of scene) {
+                // 4.1 Create the combined MVP matrix (Model-View-Projection)
+                const mvpMat = projectionMat
+                    .multiplyMat4(viewMat)
+                    .multiplyMat4(obj.modelMatrix);
+
+                // 4.2 Transform all vertices of the object from 3D to 2D
+                const transformed = obj.vertices.map((v) => {
+                    let vec4 = v.toArray();
+                    let result = mvpMat.multiplyVec4(vec4);
+
+                    let w = result[3] !== 0 ? result[3] : 1;
+                    let ndc = [result[0] / w, result[1] / w];
+
+                    let x2d = ((ndc[0] + 1) / 2) * canvas.width;
+                    let y2d = ((1 - ndc[1]) / 2) * canvas.height;
+
+                    return [Math.round(x2d), Math.round(y2d)];
+                });
+
+                // 4.3 Set the drawing color for this object
+                ctx.fillStyle = obj.color;
+
+                // 4.4 Fill the faces first
+                if (obj.faces) {
+                    ctx.save();
+                    ctx.globalAlpha = 1;
+
+                    for (const face of obj.faces) {
+                        const polygon = face.map(index => transformed[index]);
+
+                        fillPolygonScanline(polygon, ctx);
+                    }
+
+                    ctx.restore();
+                }
+
+                // 4.5 Draw each edge of the object as a line
+                for (const [start, end] of obj.edges) {
+                    const [x0, y0] = transformed[start];
+                    const [x1, y1] = transformed[end];
+                    drawLineBresenham(x0, y0, x1, y1, ctx);
+                }
+            }
+        }*/
+
+        // The function to move camera position around in an orbit
+        function updateCameraOrbit() {
+            let x = cameraTarget.x + cameraRadius * Math.cos(cameraElevation) * Math.sin(cameraAzimuth);
+            let y = cameraTarget.y + cameraRadius * Math.sin(cameraElevation);
+            let z = cameraTarget.z + cameraRadius * Math.cos(cameraElevation) * Math.cos(cameraAzimuth);
+            cameraPosition = new Vec3(x, y, z);
+        }
+
+        // ***
+        // *** Animation for Euler and quaternion interpolation
+        // ***
+        function animate() {
+            const time = performance.now() * 0.001;
+
+            // Blend factor in [0, 1]
+            const t = (Math.sin(time) + 1) * 0.5;
+
+            // ---
+            // Euler interpolation: interpolate angles directly
+            // ---
+            const yaw = (1 - t) * startEuler.yaw + t * endEuler.yaw;
+            const pitch = (1 - t) * startEuler.pitch + t * endEuler.pitch;
+            const roll = (1 - t) * startEuler.roll + t * endEuler.roll;
+
+            const eulerMat = Mat4.rotationZ(yaw * Math.PI / 180)
+                .multiplyMat4(Mat4.rotationY(pitch * Math.PI / 180))
+                .multiplyMat4(Mat4.rotationX(roll * Math.PI / 180));
+
+            scene[1].modelMatrix = Mat4.translation(90, 60, 0).multiplyMat4(eulerMat);
+
+            // ---
+            // Quaternion interpolation: interpolate orientations
+            // ---
+            const q = Quaternion.slerp(qStart, qEnd, t);
+
+            scene[2].modelMatrix = Mat4.translation(150, 60, 0).multiplyMat4(q.toRotationMatrix());
+
+            render();
+            requestAnimationFrame(animate);
+        }
+
+        // Mouse control variables
+        let isDragging = false;
+        let lastX = 0,
+            lastY = 0;
+
+        // Mouse button pressed
+        canvas.addEventListener("mousedown", function (e) {
+            isDragging = true;
+            lastX = e.clientX;
+            lastY = e.clientY;
+        });
+
+        // Mouse button released
+        canvas.addEventListener("mouseup", function (e) {
+            isDragging = false;
+        });
+
+        // If the mouse leaves the canvas, end the drag
+        canvas.addEventListener("mouseleave", function (e) {
+            isDragging = false;
+        });
+
+        // Mouse moves on the canvas
+        canvas.addEventListener("mousemove", function (e) {
+            if (!isDragging) {
+                return;
+            }
+
+            const dx = e.clientX - lastX;
+            const dy = e.clientY - lastY;
+
+            // Horizontal: Azimuth (Y axis)
+            cameraAzimuth += -dx * 0.01;
+
+            // Vertical: Elevation (X axis)
+            cameraElevation += dy * 0.01;
+
+            // Limit elevation (do not go over the poles)
+            const maxElev = Math.PI / 2 - 0.01;
+            if (cameraElevation > maxElev) {
+                cameraElevation = maxElev;
+            }
+            if (cameraElevation < -maxElev) {
+                cameraElevation = -maxElev;
+            }
+
+            lastX = e.clientX;
+            lastY = e.clientY;
+
+            updateCameraOrbit();
+            render();
+        });
+
+        // Mouse wheel for zooming
+        canvas.addEventListener("wheel", function (e) {
+            e.preventDefault();
+
+            cameraRadius += e.deltaY * 0.5;
+            cameraRadius = Math.max(100, Math.min(1000, cameraRadius));
+
+            updateCameraOrbit();
+            render();
+        });
+
+        // Update view and start animation
+        updateCameraOrbit();
+        animate();
+    </script>
+</body> 
+
+</html>

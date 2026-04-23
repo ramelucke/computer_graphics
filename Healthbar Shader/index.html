@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<title>Exercise: Healthbar Shader</title>
+	<link rel="stylesheet" type="text/css" href="./style.css">
+</head>
+
+<body>
+	<h1>Exercise: Healthbar Shader</h1>
+
+	<p id="error" style="background-color: #bd2337; color: white;	padding: 1em;"></p>
+
+	<label for="Use solution?">Use solution?</label>
+	<select name="solution-selection" id="solution-selection">
+		<option value="No">No</option>
+		<option value="Solution 1-5">Solution 1-5</option>
+		<option value="Solution 6-8">Solution 6-8</option>
+	</select>
+
+	<label for="slider">Slider:</label>
+	<input type="range" id="slider" name="slider" min="0" max="100" value="50">
+
+	<br><br>
+
+	<canvas></canvas>
+</body>
+
+<!-- put scripts at the end, so they can reference html elements -->
+<script>
+	// check if the static file server is configured correctly
+	if (!location.hostname) {
+		displayError(
+			"You need to open this page with a local static file server!"
+			+ " For more information check the README."
+		);
+	}
+	else {
+		let request = new XMLHttpRequest();
+		request.open("GET", "/solution_6_7_8.frag", true); // file specific to this exercise
+		request.onload = function () {
+			if (request.status !== 200) {
+				displayError(
+					"The static file server seems to have been started in the wrong directory."
+					+ " If you are using Visual Studio Code, make sure you open the correct folder."
+				);
+			}
+		}
+		request.send();
+	}
+
+	function displayError(text) {
+		// display errors in the html document, so they can't be missed
+		document.querySelector("#error").textContent = text;
+		console.error(text);
+	}
+</script>
+
+<script src="./utils.js"></script>
+<script src="./mesh-data.js"></script>
+<script src="./main.js"></script>
+
+</html>
